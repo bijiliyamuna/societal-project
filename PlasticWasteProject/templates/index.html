@@ -1,0 +1,22 @@
+<h2>Plastic Waste Management System</h2>
+
+<form action="/add" method="POST"
+enctype="multipart/form-data">
+    Plastic Type:
+    <select name="plastic_type">
+        <option value="PET">PET</option>
+        <option value="HDPE">HDPE</option>
+        <option value="PVC">PVC</option>
+    </select><br><br>
+
+    Quantity:
+    <input type="number" name="quantity"><br><br>
+
+    <button type="submit">Submit</button>
+    <br><br>
+<label>Upload Image:</label>
+<input type="file" name="image" required>
+</form>
+
+<br>
+<a href="/dashboard">View Dashboard</a>

@@ -1,0 +1,23 @@
+<h2>Waste Dashboard</h2>
+
+<table border="1">
+<tr>
+<th>ID</th>
+<th>Plastic Type</th>
+<th>Quantity</th>
+<th>Recyclable</th>
+</tr>
+
+{% for row in data %}
+<tr>
+<td>{{ row[0] }}</td>
+<td>{{ row[1] }}</td>
+<td>{{ row[2] }}</td>
+<td>{{ row[3] }}</td>
+</tr>
+{% endfor %}
+
+</table>
+
+<br>
+<a href="/">Go Back</a>
