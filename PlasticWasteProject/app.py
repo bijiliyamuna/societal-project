@@ -1,57 +1,119 @@
+import logging
 import os
-from werkzeug.utils import secure_filename
-from flask import Flask, render_template, request, redirect
-import sqlite3
-import joblib
+import io
+import csv
+from flask import Flask, render_template, request, redirect, Response
 
-app = Flask(__name__)
-app.config['UPLOAD_FOLDER'] = 'static/uploads'
+# ----------------------------------------------------
+# 1. SETUP LOGGING
+# ----------------------------------------------------
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
 
-model = joblib.load("waste_model.pkl")
+from database import init_db, add_waste_log, get_all_waste, clear_database
+from utils import process_image_for_cnn
+from ml_model import evaluate_waste_cnn
+
+app = Flask(__name__, static_folder='static', static_url_path='/static')
+
+# ----------------------------------------------------
+# 2. FLASK APP STABILITY (CRITICAL SECURITY)
+# ----------------------------------------------------
+# Strictly rejects massively scaled payloads blocking Server memory exhausts optimally natively
+app.config['MAX_CONTENT_LENGTH'] = 5 * 1024 * 1024  
+
+# Initialize Safe DB 
+init_db()
 
 @app.route('/')
 def home():
+    return render_template("landing.html")
+
+@app.route('/submit')
+def submit():
     return render_template("index.html")
-
-@app.route('/add', methods=['POST'])
-def add_waste():
-    plastic_type = request.form['plastic_type']
-    quantity = int(request.form['quantity'])
-
-    # Get image from form
-    image = request.files['image']
-
-    # Secure file name
-    filename = secure_filename(image.filename)
-
-    # Save image to uploads folder
-    image.save(os.path.join(app.config['UPLOAD_FOLDER'], filename))
-
-    plastic_map = {"PET": 0, "HDPE": 1, "PVC": 2}
-    plastic_value = plastic_map.get(plastic_type, 0)
-
-    prediction = model.predict([[plastic_value, quantity]])
-    recyclable = "Yes" if prediction[0] == 1 else "No"
-
-    conn = sqlite3.connect("database.db")
-    cursor = conn.cursor()
-    cursor.execute(
-        "INSERT INTO waste (plastic_type, quantity, recyclable) VALUES (?, ?, ?)",
-        (plastic_type, quantity, recyclable)
-    )
-    conn.commit()
-    conn.close()
-
-    return redirect('/dashboard')
 
 @app.route('/dashboard')
 def dashboard():
-    conn = sqlite3.connect("database.db")
-    cursor = conn.cursor()
-    cursor.execute("SELECT * FROM waste")
-    data = cursor.fetchall()
-    conn.close()
+    data = get_all_waste()
     return render_template("dashboard.html", data=data)
 
+@app.route('/add', methods=['POST'])
+def add_waste():
+    try:
+        try:
+            quantity = int(request.form.get('quantity', 1))
+        except ValueError:
+            quantity = 1
+
+        plastic_type = request.form.get('plastic_type', 'Unknown')
+        image_file = request.files.get('image')
+
+        predicted_class = "Missing Submission"
+        recyclability = "No (Default Threshold)"
+        confidence_str = "0%"
+
+        if image_file and image_file.filename != "":
+            logger.info(f"Processing Upload securely bounds tracked: {image_file.filename}")
+            
+            image_bytes = image_file.read()
+            image_file.seek(0) # Flush memory properly preventing subsequent processing leaks
+
+            # Extract strictly normalized physical Tensor securely
+            cnn_data = process_image_for_cnn(image_bytes, filename=image_file.filename)
+
+            if cnn_data.get("valid"):
+                # Predict CNN Tracking natively cleanly
+                predicted_class, confidence = evaluate_waste_cnn(cnn_data.get("tensor"))
+                confidence_str = f"({confidence:.1f}%)"
+
+                if predicted_class in ["Glass", "Metal", "Paper", "Plastic"]:
+                    recyclability = f"Yes {confidence_str}"
+                else: 
+                    recyclability = f"No {confidence_str}"
+            else:
+                predicted_class = cnn_data.get("error", "Corrupt Input")
+                recyclability = "No (System Extraction Error)"
+                logger.warning(f"Upload pre-processing aborted: {predicted_class}")
+        else:
+            predicted_class = plastic_type
+            logger.info("Upload natively lacked Image structures; fallback securely used.")
+
+        # Push securely onto Thread-Safe SQLite Pipeline
+        add_waste_log(predicted_class, quantity, recyclability)
+
+        return redirect('/dashboard')
+
+    except Exception as e:
+        logger.error(f"Flask Route Add Critical Fault -> {e}")
+        return redirect('/dashboard')
+
+@app.route('/download')
+def download_data():
+    data = get_all_waste()
+    
+    def generate():
+        output = io.StringIO()
+        writer = csv.writer(output)
+        yield '\ufeff'
+        writer.writerow(['ID', 'Plastic Type', 'Quantity', 'Recyclable', 'Timestamp'])
+        yield output.getvalue()
+        output.seek(0); output.truncate(0)
+
+        for row in data:
+            writer.writerow(row)
+            yield output.getvalue()
+            output.seek(0); output.truncate(0)
+
+    return Response(generate(), mimetype='text/csv', headers={"Content-Disposition": "attachment; filename=waste_data.csv"})
+
+@app.route('/clear', methods=['POST'])
+def clear_data():
+    try:
+        clear_database()
+    except Exception as e:
+        logger.error(f"Clear Process Error Crash Tracked: {e}")
+    return redirect('/dashboard')
+
 if __name__ == '__main__':
-    app.run(host='0.0.0.0',port=5000,debug=True)
+    app.run(debug=True)
