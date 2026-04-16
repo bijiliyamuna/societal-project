@@ -53,14 +53,6 @@ The system uses a **Convolutional Neural Network (CNN)** based on **MobileNetV2 
 The model is trained using publicly available waste image datasets.
 
 
-### Dataset Structure:
-
-dataset/
-└── train/
-├── plastic/
-├── paper/
-├── glass/
-├── metal/
 
 
 ---
